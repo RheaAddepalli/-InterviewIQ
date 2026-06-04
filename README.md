@@ -1,7 +1,7 @@
 # AI Technical Interviewer
 
 A role-based AI candidate screening system powered by RAG.  
-Built for the PGAGI AI/ML & Backend Intern Assignment.
+
 
 ## Architecture
 
