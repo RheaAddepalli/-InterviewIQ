@@ -33,6 +33,8 @@ class Session(Base):
     # Interview config
     total_questions   = Column(Integer, default=0)
     questions_asked   = Column(Integer, default=0)
+    interview_plan    = Column(JSON, default=list)
+    current_plan_index = Column(Integer, default=0)
 
     # Relations
     questions = relationship("Question", back_populates="session",

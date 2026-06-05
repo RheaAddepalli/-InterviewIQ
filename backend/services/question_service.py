@@ -40,6 +40,7 @@ async def _build_retrieval_queries(
     role=role,
     experience_level=experience_level,
     topic=strategy.topic,
+    resume_evidence=strategy.resume_evidence,
     difficulty=strategy.difficulty,
     skills=", ".join(skills[:8]),
     domains=", ".join(domains[:5]),
@@ -160,6 +161,7 @@ async def generate_next_question(
     prompt = QUESTION_GENERATION_PROMPT.format(
         role=role,
         experience_level=experience_level,
+        
         skills=", ".join(skills[:8]),
         domains=", ".join(domains[:5]),
         projects=", ".join(projects),

@@ -17,7 +17,7 @@ from backend.db.models import Session as InterviewSession, Question, KnowledgeIn
 from backend.core.config import UPLOADS_DIR, SUPPORTED_ROLES, MAX_QUESTIONS_PER_SESSION
 from backend.services.resume_service import parse_resume
 from backend.services.question_service import generate_next_question
-from backend.services.knowledge_service import ingest_role_knowledge, load_faiss_for_role
+from backend.services.knowledge_service import ingest_role_knowledge, load_faiss_for_role,load_role_topics
 from backend.services.report_service import generate_session_report
 from backend.services.evaluator import evaluate_answer,EvaluationResult
 
@@ -25,7 +25,8 @@ from backend.services.interview_agent import (
     InterviewAgent,
     InterviewState,
     QuestionRecord,
-    InterviewStrategy
+    InterviewStrategy,
+    agent
 )
 
 router = APIRouter(prefix="/api")
@@ -123,6 +124,21 @@ async def start_session(
     status="active",
 )
     db.add(session)
+    # Build interview plan
+    plan = await agent.build_resume_interview_plan(
+    role=role,
+    candidate_name=parsed.get("candidate_name", ""),
+    experience_level=experience_level,
+    skills=parsed.get("skills", []),
+    domains=parsed.get("domains", []),
+    projects=parsed.get("notable_projects", []),
+    total_questions=MAX_QUESTIONS_PER_SESSION,
+)
+    session.interview_plan = plan
+    print(f"\n===== INTERVIEW PLAN =====")
+    for slot in plan:
+        print(f"  Slot {slot.get('slot')}: {slot.get('topic')} [{slot.get('difficulty')}] — {slot.get('resume_evidence')}")
+    print("==========================\n")
     await db.flush()
 
     return {
@@ -209,7 +225,29 @@ async def next_question(session_id: str, db: AsyncSession = Depends(get_db)):
 
   
 
-    agent = InterviewAgent()
+    # Build history from existing questions
+    history = []
+    for q in existing_questions:
+        eval_result = None
+        if q.rubric_level is not None:
+            eval_result = EvaluationResult(
+                rubric_level=q.rubric_level,
+                performance=q.performance or "weak",
+                reasoning=q.evaluation_reasoning or "",
+                topics_demonstrated=q.topics_demonstrated or [],
+                gaps_detected=q.gaps_detected or [],
+            )
+        history.append(QuestionRecord(
+            question_text=q.question_text,
+            topic=q.topic or "",
+            difficulty=q.difficulty or "easy",
+            question_type=q.question_type or "conceptual",
+            is_follow_up=q.is_follow_up or False,
+            answer_text=q.answer_text,
+            evaluation=eval_result,
+            resume_evidence=q.resume_evidence or "",
+            concept_family=q.concept_family or "",
+        ))
 
     state = InterviewState(
         role=session.role,
@@ -217,12 +255,19 @@ async def next_question(session_id: str, db: AsyncSession = Depends(get_db)):
         skills=session.resume_skills or [],
         domains=session.resume_domains or [],
         projects=session.resume_projects or [],
-        questions_asked=0,
+        questions_asked=len(existing_questions),
         total_questions=session.total_questions,
-        history=[],
+        history=history,
+        interview_plan=session.interview_plan or [],
+        current_plan_index=session.current_plan_index or 0,
     )
 
-    initial_strategy = agent._opening_strategy(state)
+    last_eval = history[-1].evaluation if history else EvaluationResult(
+        rubric_level=1, performance="weak", reasoning="", 
+        topics_demonstrated=[], gaps_detected=[]
+    )
+
+    initial_strategy = await agent.decide_strategy(state, last_eval)
     print("=" * 50)
     print("NEXT QUESTION CALLED")
     print("session:", session.id)
@@ -259,8 +304,10 @@ async def next_question(session_id: str, db: AsyncSession = Depends(get_db)):
         is_follow_up=q_data.get("is_follow_up", False),
     )
     db.add(question)
+    session.current_plan_index = (session.current_plan_index or 0) + 1
 
     session.questions_asked = order
+    session.current_plan_index = (session.current_plan_index or 0) + 1
     await db.flush()
 
     return {

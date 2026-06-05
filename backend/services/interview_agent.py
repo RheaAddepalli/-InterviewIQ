@@ -52,6 +52,8 @@ class InterviewState:
     total_questions: int
     history: List[QuestionRecord]
     current_difficulty: str = "medium"
+    interview_plan: List[dict] = field(default_factory=list)
+    current_plan_index: int = 0
     
 @dataclass
 class InterviewStrategy:
@@ -87,6 +89,29 @@ class InterviewAgent:
         Returns the strategy for the next question.
         """
         # First question — no history, no eval
+        # ── Plan-based strategy ──────────────────────────────────
+        if state.interview_plan:
+
+            if state.history:
+
+                last = state.history[-1]
+
+                if self.should_follow_up(
+                    last,
+                    latest_evaluation
+                ):
+                    return self._follow_up_strategy(
+                        state,
+                        last,
+                        latest_evaluation,
+                    )
+
+            return self._plan_based_strategy(
+                state,
+                latest_evaluation,
+            )
+
+        # ── Fallback: no plan, use LLM strategy ──────────────────
         if not state.history:
             return self._opening_strategy(state)
 
@@ -300,7 +325,38 @@ class InterviewAgent:
                 seen.add(t.lower())
                 unique.append(t)
         return unique
+    async def build_resume_interview_plan(
+    self,
+    role: str,
+    candidate_name: str,
+    experience_level: str,
+    skills: List[str],
+    domains: List[str],
+    projects: List[str],
+    total_questions: int,
+) -> List[dict]:
+        import json
+        from backend.prompts.prompts import RESUME_INTERVIEW_PLAN_PROMPT
+        from backend.services.llm_service import call_llm_json
 
+     
+        prompt = RESUME_INTERVIEW_PLAN_PROMPT.format(
+            candidate_name=candidate_name,
+            role=role,
+            experience_level=experience_level,
+            skills=", ".join(skills[:8]),
+            domains=", ".join(domains[:5]),
+            projects="\n".join(projects[:6]),
+   
+            total_questions=total_questions,
+        )
+
+        result = await call_llm_json(prompt, temperature=0.0, max_tokens=2000)
+
+        if not result or "plan" not in result:
+            return []
+
+        return result["plan"]
     # ── State computation ────────────────────────────────────────
 
     def compute_performance_trend(self, history: List[QuestionRecord]) -> List[str]:
@@ -349,7 +405,46 @@ class InterviewAgent:
             is_follow_up=False,
             reason="Starting interview from candidate resume.",
         )
+    def _plan_based_strategy(
+            self,
+            state: InterviewState,
+            latest_evaluation: EvaluationResult,
+        ) -> InterviewStrategy:
+            plan = state.interview_plan
+            idx = state.current_plan_index
 
+            # If plan exhausted, fall back to opening strategy
+            if idx >= len(plan):
+                return self._fallback_strategy(state)
+
+            slot = plan[idx]
+
+            # Adjust difficulty based on last answer performance
+            difficulty = slot.get("difficulty", "easy")
+            if state.history and latest_evaluation:
+                perf = latest_evaluation.performance
+                if perf == "strong":
+                    difficulty = self._harder(difficulty)
+                elif perf == "weak":
+                    difficulty = self._easier(difficulty)
+
+            # Enforce experience level caps
+            exp = state.experience_level.lower()
+            if exp in ["fresher", "student", "intern", "junior"]:
+                if difficulty == "hard":
+                    difficulty = "medium"
+
+            resume_evidence = slot.get("resume_evidence", "")
+
+            return InterviewStrategy(
+                topic=resume_evidence or state.role,
+                resume_evidence=resume_evidence,
+                concept_family="resume",
+                difficulty=difficulty,
+                question_type=slot.get("question_type", "conceptual"),
+                is_follow_up=False,
+                reason=f"Testing resume evidence: {resume_evidence}",
+            )
     def _fallback_strategy(self, state: InterviewState) -> InterviewStrategy:
         """Used when LLM strategy call fails."""
         return InterviewStrategy(

@@ -48,7 +48,24 @@ def _hash_file(path: str) -> str:
 def _index_path(role: str) -> str:
     safe = role.replace(" ", "_").replace("/", "_")
     return os.path.join(FAISS_INDEX_DIR, f"{safe}.pkl")
+def _topics_path(role: str) -> str:
+    safe = role.replace(" ", "_").replace("/", "_")
+    return os.path.join(FAISS_INDEX_DIR, f"{safe}_topics.json")
 
+
+def save_role_topics(role: str, topics: dict):
+    import json
+    with open(_topics_path(role), "w") as f:
+        json.dump(topics, f, indent=2)
+
+
+def load_role_topics(role: str) -> dict:
+    import json
+    path = _topics_path(role)
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        return json.load(f)
 
 def load_faiss_for_role(role: str):
     """Load a pre-built FAISS index for a role. Returns None if not built yet."""
@@ -72,6 +89,8 @@ async def ingest_role_knowledge(role: str) -> dict:
     """
     pdf_files = ROLE_KNOWLEDGE_MAP.get(role, [])
     all_chunks: List[str] = []
+    all_summary_chunks: List[str] = []
+    per_pdf_summaries: dict = {}
 
     for fname in pdf_files:
         pdf_path = os.path.join(KNOWLEDGE_BASE_DIR, fname)
@@ -82,9 +101,11 @@ async def ingest_role_knowledge(role: str) -> dict:
         print(f"[Ingest] Processing {fname} for role '{role}'...")
 
         text, _ = extract_pdf_parallel(pdf_path)
-        _, rag_chunks = semantic_chunk(text)
-
+        summary_chunks, rag_chunks = semantic_chunk(text)
+        print(f"[DEBUG] Summary chunks sample: {summary_chunks[:2]}")
         all_chunks.extend(rag_chunks)
+        all_summary_chunks.extend(summary_chunks)
+        per_pdf_summaries[fname] = summary_chunks
         print(f"[Ingest] {fname} → {len(rag_chunks)} chunks")
 
     if not all_chunks:
@@ -96,6 +117,10 @@ async def ingest_role_knowledge(role: str) -> dict:
 
     save_faiss_for_role(role, index)
     print(f"[Ingest] Role '{role}' indexed — {len(all_chunks)} total chunks")
+    topics = await extract_kb_topics(role, per_pdf_summaries, pdf_files)
+    import asyncio
+    await asyncio.sleep(10)  # wait 10 seconds before topic extraction
+    save_role_topics(role, topics)
     return {"status": "ready", "chunk_count": len(all_chunks)}
 
 
@@ -112,3 +137,38 @@ def get_all_chunks_for_role(role: str) -> List[str]:
         return [d.page_content for d in docs]
     except Exception:
         return []
+async def extract_kb_topics(role: str, per_pdf_summaries: dict, pdf_files: List[str]) -> dict:
+    from datetime import datetime
+    from backend.prompts.prompts import KB_TOPIC_EXTRACTION_PROMPT
+    from backend.services.llm_service import call_llm_json
+    import json
+
+    # Even sampling across all summary chunks
+    MAX_CHUNKS = 40
+    PER_PDF_LIMIT = 15
+    SKIP_FRONT_MATTER = 3  # skip copyright/preface chunks
+    sampled = []
+    for fname, chunks in per_pdf_summaries.items():
+        useful = chunks[SKIP_FRONT_MATTER:]  # skip front matter
+        step = max(1, len(useful) // PER_PDF_LIMIT)
+        sampled.extend(useful[::step][:PER_PDF_LIMIT])
+    # print(f"[DEBUG] Sampled {len(sampled)} chunks from {len(per_pdf_summaries)} PDFs")
+    # print(f"[DEBUG] First sampled chunk preview: {sampled[0][:300] if sampled else 'EMPTY'}")
+    summary_context = "\n\n---\n\n".join(sampled)
+
+    prompt = KB_TOPIC_EXTRACTION_PROMPT.format(
+        role=role,
+        summary_context=summary_context[:8000],
+        generated_at=datetime.utcnow().isoformat(),
+        pdfs=json.dumps(pdf_files),
+    )
+
+    try:
+        result = await call_llm_json(prompt, temperature=0.0, max_tokens=2000)
+    except Exception as e:
+        print(f"[DEBUG] extract_kb_topics LLM error: {e}")
+        result = None
+    print(f"[DEBUG] LLM result keys: {list(result.keys()) if result else 'NULL'}")
+    if not result or "concepts" not in result:
+        return {"role": role, "pdfs": pdf_files, "concepts": []}
+    return result

@@ -26,7 +26,132 @@ Rules:
 - If a field is unknown, use empty string or empty array
 """
 
+KB_TOPIC_EXTRACTION_PROMPT = """You are analyzing a technical knowledge base for the role: {role}
 
+Below are representative excerpts from the source textbooks:
+{summary_context}
+
+Extract the key technical concepts a student would learn from studying this knowledge base.
+Rules:
+- Use the excerpts to infer the FULL topic coverage of the book
+- Include concepts mentioned directly AND concepts implied by chapter headings, algorithms named, and methods referenced
+- Extract interview-worthy concepts: algorithms, techniques, architectures, evaluation methods
+- Do NOT extract application examples, company names, or dataset names as concepts
+- Do NOT invent concepts not supported by the text
+- Group aliases under one concept (CNN / ConvNet → one entry)
+- difficulty: fundamental = core basics, intermediate = applied understanding, advanced = deep theory/design
+
+Respond ONLY with valid JSON, nothing else:
+{{
+  "role": "{role}",
+  "generated_at": "{generated_at}",
+  "pdfs": {pdfs},
+  "concepts": [
+    {{
+      "name": "concept name",
+      "aliases": ["alias1", "alias2"],
+      "difficulty": "fundamental | intermediate | advanced",
+      "category": "broad category e.g. Neural Networks, Optimization, NLP"
+    }}
+  ]
+}}
+"""
+
+INTERVIEW_PLAN_PROMPT = """You are designing a technical interview plan.
+
+Candidate profile:
+- Name: {candidate_name}
+- Role: {role}
+- Experience level: {experience_level}
+- Skills: {skills}
+- Domains: {domains}
+- Projects: {projects}
+
+Available knowledge base concepts for this role:
+{kb_concepts}
+
+Total questions to plan: {total_questions}
+
+Your task:
+Create an interview plan with exactly {total_questions} slots.
+
+Rules:
+- Every slot topic MUST match or closely relate to a concept in the knowledge base concepts list above
+- Do NOT include topics not supported by the knowledge base
+- Each slot must be grounded in a specific resume project, skill, or domain
+- Spread questions across different resume evidence — do not repeat the same project twice in a row
+- Difficulty should match experience level:
+  fresher/student/intern → mostly easy, some medium
+  junior → easy and medium
+  mid → medium and some hard
+  senior → medium and hard
+- First 2 questions should always be easy regardless of experience level
+- No two consecutive slots should have the same concept_family
+- Vary question types across the plan
+
+Respond ONLY with valid JSON, nothing else:
+{{
+  "plan": [
+    {{
+      "slot": 1,
+      "topic": "specific concept name from kb_concepts (3-6 words)",
+      "concept_family": "broader category from kb_concepts",
+      "resume_evidence": "which project/skill/domain this tests",
+      "difficulty": "easy | medium | hard",
+      "question_type": "conceptual | applied | scenario"
+    }}
+  ]
+}}
+"""
+RESUME_INTERVIEW_PLAN_PROMPT = """
+You are designing a technical interview.
+
+Candidate role:
+{role}
+
+Experience:
+{experience_level}
+
+Projects:
+{projects}
+
+Skills:
+{skills}
+
+Domains:
+{domains}
+
+Create exactly {total_questions} interview slots.
+
+Priority:
+
+1. Resume projects
+2. Resume skills
+3. Resume domains
+4. Role fundamentals
+
+Rules:
+
+- Cover projects first
+- Avoid repeating the same project repeatedly
+- Use actual project names
+- Difficulty based on experience
+- First question easy
+- Questions should evaluate technical depth
+
+Respond ONLY valid JSON:
+
+{{
+  "plan":[
+    {{
+      "slot":1,
+      "resume_evidence":"project or skill",
+      "difficulty":"easy",
+      "question_type":"conceptual"
+    }}
+  ]
+}}
+"""
 # ============================================================
 # QUERY CONSTRUCTION PROMPT
 # ============================================================
@@ -35,6 +160,7 @@ QUERY_CONSTRUCTION_PROMPT = """You are preparing knowledge base retrieval querie
 Interview context:
 - Role: {role}
 - Experience level: {experience_level}
+- Resume evidence: {resume_evidence}
 - Target topic: {topic}
 - Target difficulty: {difficulty}
 
@@ -48,8 +174,21 @@ about the target topic at the target difficulty level.
 
 Rules:
 - Queries must retrieve CONCEPTUAL and TECHNICAL content about the topic
-Use resume evidence to identify the technical concepts
-that should be assessed.
+The resume evidence is the PRIMARY signal.
+
+Build retrieval queries around the resume evidence first.
+
+If the resume evidence is a project:
+- infer the technical concepts involved
+- generate implementation-focused queries
+- generate debugging queries
+- generate evaluation queries
+- generate design tradeoff queries
+
+Use the topic only as supporting context.
+
+Do NOT generate queries directly from project names.
+Generate queries for the underlying technical concepts.
 
 Generate queries that retrieve knowledge related to:
 - concepts
@@ -118,7 +257,18 @@ Rules:
 - Base the question on the retrieved context above — that is your source of truth
 - Use the candidate's skills/domains ONLY to choose relevant angles
   (e.g. if they know PyTorch, frame the question in that context)
-- Do NOT ask "In your X project..." — test the CONCEPT, not the project
+-Use the resume evidence as context.
+
+-The question may reference the candidate's project,
+skill, or domain when doing so creates a more realistic
+interview question.
+
+-Do not assume implementation details not present in
+the resume or retrieved context.
+
+
+-Test the underlying concept through the candidate's
+experience whenever possible.
 - Do NOT assume what the candidate built — you are testing understanding
 - Avoid introducing advanced concepts or terminology.
 

@@ -73,13 +73,14 @@ async def call_llm(
 
 async def call_llm_json(
     prompt: str,
-    temperature: float = 0.0
+    temperature: float = 0.0,
+    max_tokens: int = 800,
 ) -> dict:
 
     import json
     import re
 
-    raw = await call_llm(prompt, temperature)
+    raw = await call_llm(prompt, temperature, max_tokens)
 
     cleaned = re.sub(r"```(?:json)?", "", raw)
     cleaned = re.sub(r"```", "", cleaned).strip()
