@@ -42,6 +42,7 @@ export default function InterviewPage() {
   const [elapsed, setElapsed] = useState(0)
   const timerRef = useRef(null)
   const textareaRef = useRef(null)
+  const firstQuestionLoaded = useRef(false)
 
   // Redirect if no session
   useEffect(() => {
@@ -50,10 +51,16 @@ export default function InterviewPage() {
 
   // Load first question on mount
   useEffect(() => {
-    if (sessionId && !currentQuestion && questionsAsked === 0) {
-      fetchNextQuestion()
-    }
-  }, [sessionId])
+  if (
+    sessionId &&
+    !firstQuestionLoaded.current &&
+    !currentQuestion &&
+    questionsAsked === 0
+  ) {
+    firstQuestionLoaded.current = true
+    fetchNextQuestion()
+  }
+}, [sessionId])
 
   // Timer
   useEffect(() => {

@@ -226,6 +226,7 @@ Candidate profile:
 - Skills the candidate claims: {skills}
 -Projects: {projects}
 - Domains the candidate has worked in: {domains}
+- Resume evidence currently being assessed: {resume_evidence}
 
 Interview strategy:
 - Target topic: {topic}
@@ -285,6 +286,7 @@ experience whenever possible.
 - Ask ONE focused thing
 - Keep the question under 2 sentences
 - Do NOT start with "Can you", "Could you", "Would you", "Explain", "Define", "Describe"
+
 -Question style:
  Choose the most appropriate interview question style naturally based on:
   - candidate experience level

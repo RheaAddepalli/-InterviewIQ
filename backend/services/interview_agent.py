@@ -100,6 +100,9 @@ class InterviewAgent:
                     last,
                     latest_evaluation
                 ):
+                    print("FOLLOWUP TRIGGERED")
+                    print("TOPIC:", last.topic)
+                    print("PERFORMANCE:", latest_evaluation.performance)
                     return self._follow_up_strategy(
                         state,
                         last,
@@ -288,6 +291,13 @@ class InterviewAgent:
         - AND the last question was NOT already a follow-up
         (one follow-up allowed per topic — then move on)
         """
+        print(
+        "FOLLOWUP CHECK |",
+        "performance=",
+        last_eval.performance,
+        "| already_followup=",
+        last_record.is_follow_up,
+    )
         if last_eval.is_weak() and not last_record.is_follow_up:
             return True
         return False
@@ -435,7 +445,15 @@ class InterviewAgent:
                     difficulty = "medium"
 
             resume_evidence = slot.get("resume_evidence", "")
+            print("\n===== DIFFICULTY ADAPTATION =====")
 
+            if latest_evaluation:
+                print("LAST PERFORMANCE:", latest_evaluation.performance)
+            else:
+                print("LAST PERFORMANCE: NONE (first question)")
+
+            print("FINAL DIFFICULTY:", difficulty)
+            print("=================================")
             return InterviewStrategy(
                 topic=resume_evidence or state.role,
                 resume_evidence=resume_evidence,
@@ -445,6 +463,24 @@ class InterviewAgent:
                 is_follow_up=False,
                 reason=f"Testing resume evidence: {resume_evidence}",
             )
+    def _follow_up_strategy(
+    self,
+    state: InterviewState,
+    last_record: QuestionRecord,
+    last_eval: EvaluationResult,
+) -> InterviewStrategy:
+
+        print("FOLLOWUP STRATEGY CREATED")
+
+        return InterviewStrategy(
+            topic=last_record.topic,
+            resume_evidence=last_record.resume_evidence,
+            concept_family=last_record.concept_family,
+            difficulty=last_record.difficulty,
+            question_type="follow_up",
+            is_follow_up=True,
+            reason=f"Candidate struggled with {last_record.topic}",
+        )
     def _fallback_strategy(self, state: InterviewState) -> InterviewStrategy:
         """Used when LLM strategy call fails."""
         return InterviewStrategy(

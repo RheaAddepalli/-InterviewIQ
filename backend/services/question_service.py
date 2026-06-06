@@ -120,12 +120,12 @@ async def generate_next_question(
     # ── Step 1: Load knowledge base ──────────────────────────────
     faiss_index = load_faiss_for_role(role)
     all_chunks  = get_all_chunks_for_role(role)
-    print("\n========== QUESTION DEBUG ==========")
-    print("PROJECTS:", projects)
-    print("STRATEGY TOPIC:", strategy.topic)
-    print("QUESTION TYPE:", strategy.question_type)
-    print("DIFFICULTY:", strategy.difficulty)
-    print("====================================")
+    # print("\n========== QUESTION DEBUG ==========")
+    # print("PROJECTS:", projects)
+    # print("STRATEGY TOPIC:", strategy.topic)
+    # print("QUESTION TYPE:", strategy.question_type)
+    # print("DIFFICULTY:", strategy.difficulty)
+    # print("====================================")
     # ── Step 2: Build retrieval queries ──────────────────────────
     queries = await _build_retrieval_queries(
     strategy,
@@ -135,25 +135,25 @@ async def generate_next_question(
     domains,
     projects,
 )
-    print("\n========== RETRIEVAL QUERIES ==========")
-    for q in queries:
-        print(q)
-    print("=======================================")
+    # print("\n========== RETRIEVAL QUERIES ==========")
+    # for q in queries:
+    #     print(q)
+    # print("=======================================")
     # ── Step 3: Retrieve chunks ──────────────────────────────────
     retrieved_chunks = _retrieve_chunks(
         queries, faiss_index, all_chunks, experience_level
     )
-    print("\n========== RETRIEVED CHUNKS ==========")
+    # print("\n========== RETRIEVED CHUNKS ==========")
 
-    for i, chunk in enumerate(retrieved_chunks[:5], start=1):
-        print(f"\n----- CHUNK {i} -----")
+    # for i, chunk in enumerate(retrieved_chunks[:5], start=1):
+    #     print(f"\n----- CHUNK {i} -----")
 
-        if isinstance(chunk, str):
-            print(chunk[:800])
-        else:
-            print(str(chunk)[:800])
+    #     if isinstance(chunk, str):
+    #         print(chunk[:800])
+    #     else:
+    #         print(str(chunk)[:800])
 
-    print("======================================")
+    # print("======================================")
 
     context_text = "\n\n---\n\n".join(retrieved_chunks[:8])
 
@@ -161,7 +161,7 @@ async def generate_next_question(
     prompt = QUESTION_GENERATION_PROMPT.format(
         role=role,
         experience_level=experience_level,
-        
+        resume_evidence=strategy.resume_evidence,
         skills=", ".join(skills[:8]),
         domains=", ".join(domains[:5]),
         projects=", ".join(projects),

@@ -168,6 +168,11 @@ async def next_question(session_id: str, db: AsyncSession = Depends(get_db)):
     Generate the next interview question for this session.
     Uses resume profile + previous Q&A for context-aware generation.
     """
+    print("\n")
+    print("=" * 60)
+    print("NEXT QUESTION CALLED")
+    print("SESSION:", session_id)
+    print("=" * 60)
     session = await _get_session_or_404(session_id, db)
 
     if session.status != "active":
@@ -268,6 +273,11 @@ async def next_question(session_id: str, db: AsyncSession = Depends(get_db)):
     )
 
     initial_strategy = await agent.decide_strategy(state, last_eval)
+    print("\n===== PLAN DEBUG =====")
+    print("SESSION PLAN INDEX:", session.current_plan_index)
+    print("STATE PLAN INDEX:", state.current_plan_index)
+    print("EXISTING QUESTIONS:", len(existing_questions))
+    print("======================")
     print("=" * 50)
     print("NEXT QUESTION CALLED")
     print("session:", session.id)
@@ -304,10 +314,16 @@ async def next_question(session_id: str, db: AsyncSession = Depends(get_db)):
         is_follow_up=q_data.get("is_follow_up", False),
     )
     db.add(question)
-    session.current_plan_index = (session.current_plan_index or 0) + 1
 
     session.questions_asked = order
-    session.current_plan_index = (session.current_plan_index or 0) + 1
+    print(
+        "INCREMENTING PLAN INDEX FROM",
+        session.current_plan_index
+    )
+    session.current_plan_index = (
+        session.current_plan_index or 0
+    ) + 1
+
     await db.flush()
 
     return {
@@ -326,7 +342,6 @@ async def next_question(session_id: str, db: AsyncSession = Depends(get_db)):
 # ════════════════════════════════════════════════════════════════
 # INTERVIEW — submit answer
 # ════════════════════════════════════════════════════════════════
-
 @router.post("/sessions/{session_id}/answer")
 async def submit_answer(
     session_id: str,
@@ -337,6 +352,11 @@ async def submit_answer(
     Store candidate's answer to a question.
     payload: {"question_id": "...", "answer_text": "...", "duration_sec": 45}
     """
+    print("\n")
+    print("=" * 60)
+    print("ANSWER ENDPOINT GENERATING NEXT QUESTION")
+    print("SESSION:", session_id)
+    print("=" * 60)
     session = await _get_session_or_404(session_id, db)
 
     question_id = payload.get("question_id")
@@ -438,6 +458,7 @@ async def submit_answer(
     # STEP 4: Build adaptive interview state
     # ============================================================
 
+    
     state = InterviewState(
     role=session.role,
     experience_level=session.resume_experience_level,
@@ -447,7 +468,12 @@ async def submit_answer(
     questions_asked=session.questions_asked,
     total_questions=session.total_questions,
     history=history,
+
+    interview_plan=session.interview_plan or [],
+    current_plan_index=session.current_plan_index or 0,
 )
+
+
 
     # ============================================================
     # STEP 5: Ask agent what to do next
@@ -459,7 +485,13 @@ async def submit_answer(
         state=state,
         latest_evaluation=evaluation,
     )
-
+    print("\n===== STRATEGY =====")
+    print("TOPIC:", strategy.topic)
+    print("DIFFICULTY:", strategy.difficulty)
+    print("TYPE:", strategy.question_type)
+    print("FOLLOWUP:", strategy.is_follow_up)
+    print("REASON:", strategy.reason)
+    print("====================\n")
     # ============================================================
     # STEP 6: Generate next question
     # ============================================================
@@ -566,6 +598,252 @@ async def submit_answer(
     "is_follow_up": new_question.is_follow_up,
 }
     }
+
+
+
+
+
+
+
+# @router.post("/sessions/{session_id}/answer")
+# async def submit_answer(
+#     session_id: str,
+#     payload: dict,
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     """
+#     Store candidate's answer to a question.
+#     payload: {"question_id": "...", "answer_text": "...", "duration_sec": 45}
+#     """
+#     session = await _get_session_or_404(session_id, db)
+
+#     question_id = payload.get("question_id")
+#     answer_text = payload.get("answer_text", "").strip()
+#     duration    = payload.get("duration_sec")
+
+#     result = await db.execute(
+#         select(Question).where(
+#             Question.id == uuid.UUID(question_id),
+#             Question.session_id == session.id
+#         )
+#     )
+#     question: Optional[Question] = result.scalar_one_or_none()
+#     if not question:
+#         raise HTTPException(status_code=404, detail="Question not found")
+
+#     question.answer_text       = answer_text
+#     question.answered_at       = datetime.utcnow()
+#     question.answer_duration_sec = duration
+
+#     await db.flush()
+#         # ============================================================
+#     # STEP 1: Evaluate candidate answer
+#     # ============================================================
+
+#     evaluation = await evaluate_answer(
+#         question=question.question_text,
+#         answer=answer_text,
+#         role=session.role,
+#     )
+
+#     # ============================================================
+#     # STEP 2: Persist evaluation
+#     # ============================================================
+
+#     question.rubric_level = evaluation.rubric_level
+#     question.performance = evaluation.performance
+#     question.evaluation_reasoning = evaluation.reasoning
+
+#     question.topics_demonstrated = (
+#         evaluation.topics_demonstrated
+#     )
+
+#     question.gaps_detected = (
+#         evaluation.gaps_detected
+#     )
+
+#     # ============================================================
+#     # STEP 3: Build interview history
+#     # ============================================================
+
+#     result = await db.execute(
+
+#     select(Question)
+
+#     .where(Question.session_id == session.id)
+
+#     .order_by(Question.order_index)
+
+# )
+
+#     all_questions = result.scalars().all()
+
+#     history = []
+
+#     for q in all_questions:
+
+#         eval_obj = None
+
+#         if q.performance:
+#             eval_obj = EvaluationResult(
+#                 rubric_level=q.rubric_level or 0,
+#                 performance=q.performance,
+#                 reasoning=q.evaluation_reasoning or "",
+#                 topics_demonstrated=q.topics_demonstrated or [],
+#                 gaps_detected=q.gaps_detected or [],
+#             )
+
+#         history.append(
+#             QuestionRecord(
+#                 question_text=q.question_text,
+#                 topic=q.topic or "",
+
+#                 resume_evidence=
+#                     q.resume_evidence or "",
+
+#                 concept_family=
+#                     q.concept_family or "",
+
+#                 difficulty=q.difficulty or "medium",
+#                 question_type=q.question_type or "conceptual",
+#                 is_follow_up=q.is_follow_up or False,
+#                 answer_text=q.answer_text or "",
+#                 evaluation=eval_obj,
+#             )
+#         )
+
+#     # ============================================================
+#     # STEP 4: Build adaptive interview state
+#     # ============================================================
+
+#     state = InterviewState(
+#     role=session.role,
+#     experience_level=session.resume_experience_level,
+#     skills=session.resume_skills or [],
+#     domains=session.resume_domains or [],
+#     projects=session.resume_projects or [],
+#     questions_asked=session.questions_asked,
+#     total_questions=session.total_questions,
+#     history=history,
+# )
+
+#     # ============================================================
+#     # STEP 5: Ask agent what to do next
+#     # ============================================================
+
+#     agent = InterviewAgent()
+
+#     strategy = await agent.decide_strategy(
+#         state=state,
+#         latest_evaluation=evaluation,
+#     )
+
+#     # ============================================================
+#     # STEP 6: Generate next question
+#     # ============================================================
+#     if session.questions_asked >= session.total_questions:
+#         session.status = "completed"
+#         await db.flush()
+
+#         return {
+#             "status": "completed"
+#         }
+
+#     # question_data = await generate_next_question(
+#     #     role=session.role,
+#     #     experience_level=session.resume_experience_level or "mid",
+#     #     skills=session.resume_skills or [],
+#     #     domains=session.resume_domains or [],
+#     #     projects=session.resume_projects or [],
+#     #     previous_questions=[
+#     #         q.question_text
+#     #         for q in all_questions
+#     #     ],
+#     #     last_answer=answer_text,
+
+#     #     strategy=strategy.question_type,
+#     #     target_topic=strategy.topic,
+#     #     target_difficulty=strategy.difficulty,
+#     # )
+#     question_data = await generate_next_question(
+#     strategy=strategy,
+#     role=session.role,
+#     experience_level=session.resume_experience_level or "mid",
+#     skills=session.resume_skills or [],
+#     domains=session.resume_domains or [],
+#     projects=session.resume_projects or [],
+#     covered_topics=[
+#         q.topic
+#         for q in all_questions
+#         if q.topic
+#     ],
+# )
+
+#     # ============================================================
+#     # STEP 7: Save next question
+#     # ============================================================
+
+#     new_question = Question(
+#         session_id=session.id,
+#         order_index=session.questions_asked + 1,
+
+#         question_text=question_data["question_text"],
+#         question_type=question_data.get("question_type"),
+#         resume_evidence=strategy.resume_evidence,
+#         concept_family=strategy.concept_family,
+#         topic=question_data.get("topic"),
+#         difficulty=question_data.get("difficulty"),
+
+#         source_chunks=question_data.get(
+#             "source_chunks",
+#             []
+#         ),
+
+#         keywords_expected=question_data.get(
+#             "keywords_expected",
+#             []
+#         ),
+
+#         is_follow_up=question_data.get(
+#             "is_follow_up",
+#             False
+#         ),
+#     )
+
+#     db.add(new_question)
+
+#     session.questions_asked += 1
+
+#     await db.flush()
+
+#     # ============================================================
+#     # STEP 8: Return adaptive response
+#     # ============================================================
+
+#     return {
+
+#         "status": "saved",
+
+#         "evaluation": evaluation.to_dict(),
+
+#         "strategy": {
+#             "topic": strategy.topic,
+#             "difficulty": strategy.difficulty,
+#             "question_type": strategy.question_type,
+#             "is_follow_up": strategy.is_follow_up,
+#             "reason": strategy.reason,
+#         },
+
+#         "next_question": {
+#     "question_id": str(new_question.id),
+#     "order_index": session.questions_asked,
+#     "question_text": new_question.question_text,
+#     "difficulty": new_question.difficulty,
+#     "topic": new_question.topic,
+#     "question_type": new_question.question_type,
+#     "is_follow_up": new_question.is_follow_up,
+# }
+#     }
 
 
 # ════════════════════════════════════════════════════════════════

@@ -102,7 +102,7 @@ async def ingest_role_knowledge(role: str) -> dict:
 
         text, _ = extract_pdf_parallel(pdf_path)
         summary_chunks, rag_chunks = semantic_chunk(text)
-        print(f"[DEBUG] Summary chunks sample: {summary_chunks[:2]}")
+        # print(f"[DEBUG] Summary chunks sample: {summary_chunks[:2]}")
         all_chunks.extend(rag_chunks)
         all_summary_chunks.extend(summary_chunks)
         per_pdf_summaries[fname] = summary_chunks
